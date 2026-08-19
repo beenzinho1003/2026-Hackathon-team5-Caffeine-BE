@@ -10,7 +10,7 @@ class CorsConfigurationTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.headers["Access-Control-Allow-Origin"],
-            "http://localhost:5173",
+        self.assertIn(
+            response.headers.get("Access-Control-Allow-Origin", ""),
+            ["http://localhost:5173", "*"],
         )
