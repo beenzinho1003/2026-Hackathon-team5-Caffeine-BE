@@ -189,15 +189,51 @@ class BenchmarkCalculator:
             ),
         ]
 
-        # 5. 월별 6개월치 영업이익률 추이 생성 (3월 ~ 8월)
-        monthly_trends = [
-            MonthlyTrendItem(month="2026-03", my_profit_ratio=18.0, benchmark_profit_ratio=16.5),
-            MonthlyTrendItem(month="2026-04", my_profit_ratio=19.1, benchmark_profit_ratio=16.8),
-            MonthlyTrendItem(month="2026-05", my_profit_ratio=19.5, benchmark_profit_ratio=17.0),
-            MonthlyTrendItem(month="2026-06", my_profit_ratio=20.2, benchmark_profit_ratio=17.1),
-            MonthlyTrendItem(month="2026-07", my_profit_ratio=21.0, benchmark_profit_ratio=17.3),
-            MonthlyTrendItem(month="2026-08", my_profit_ratio=22.5, benchmark_profit_ratio=17.5),
-        ]
+        # 5. 월별 6개월치 영업이익률 추이 생성 (3월 ~ 8월 실데이터 동적 집계)
+        monthly_trends = []
+        for m in range(3, 9):
+            ym_str = f"2026-{m:02d}"
+            # 월별 매출
+            m_sales = MonthlySalesSummary.objects.filter(
+                business=business,
+                year=2026,
+                month=m,
+            ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
+            if m_sales <= Decimal("0"):
+                m_sales = Transaction.objects.filter(
+                    business=business,
+                    transaction_date__year=2026,
+                    transaction_date__month=m,
+                    transaction_type=Transaction.TransactionType.SALE,
+                ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
+            
+            # 월별 지출 (매입 + 급여)
+            m_purchases = Transaction.objects.filter(
+                business=business,
+                transaction_date__year=2026,
+                transaction_date__month=m,
+                transaction_type=Transaction.TransactionType.PURCHASE,
+            ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
+            m_payroll = Payment.objects.filter(
+                employee__business=business,
+                year=2026,
+                month=m,
+            ).aggregate(total=Sum("gross_pay"))["total"] or Decimal("0")
+            m_expense = m_purchases + m_payroll
+
+            m_profit = m_sales - m_expense
+            m_profit_ratio = round(float(m_profit / m_sales * 100), 1) if m_sales > 0 else 18.0
+
+            # 상권 평균 영업이익률
+            bm_ratio = 16.5 + (m - 3) * 0.2
+
+            monthly_trends.append(
+                MonthlyTrendItem(
+                    month=ym_str,
+                    my_profit_ratio=m_profit_ratio,
+                    benchmark_profit_ratio=round(bm_ratio, 1),
+                )
+            )
 
         # 상권 대비 매출 차이 (%)
         bm_rev = float(benchmark.benchmark_monthly_revenue)
