@@ -554,6 +554,12 @@ class TransactionPurposeView(APIView):
                 if is_deductible
                 else Transaction.SourceDeductionStatus.NON_DEDUCTIBLE
             )
+        elif new_purpose == Transaction.ExpensePurpose.UNCLASSIFIED:
+            review = DeductionReviewService.get_or_create(transaction)
+            review.confirmed_status = DeductionReview.ConfirmedStatus.UNCONFIRMED
+            review.confirmed_at = None
+            review.save(update_fields=["confirmed_status", "confirmed_at", "updated_at"])
+            transaction.source_deduction_status = Transaction.SourceDeductionStatus.UNKNOWN
 
         transaction.save(
             update_fields=[
