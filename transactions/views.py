@@ -444,11 +444,35 @@ class TransactionCategoryView(APIView):
         transaction.category = serializer.validated_data["category"]
         transaction.classification_source = Transaction.ClassificationSource.USER
         transaction.classification_confidence = None
+
+        from tax.models import DeductionReview
+        from tax.services.deduction_service import DeductionReviewService
+
+        if transaction.expense_purpose == Transaction.ExpensePurpose.BUSINESS:
+            review = DeductionReviewService.get_or_create(transaction)
+            if transaction.vat_amount == 0:
+                is_deductible = transaction.category == Transaction.Category.RAW_MATERIAL
+            else:
+                is_deductible = True
+
+            confirmed = (
+                DeductionReview.ConfirmedStatus.DEDUCTIBLE
+                if is_deductible
+                else DeductionReview.ConfirmedStatus.NON_DEDUCTIBLE
+            )
+            DeductionReviewService.confirm(review=review, confirmed_status=confirmed)
+            transaction.source_deduction_status = (
+                Transaction.SourceDeductionStatus.DEDUCTIBLE
+                if is_deductible
+                else Transaction.SourceDeductionStatus.NON_DEDUCTIBLE
+            )
+
         transaction.save(
             update_fields=[
                 "category",
                 "classification_source",
                 "classification_confidence",
+                "source_deduction_status",
                 "updated_at",
             ]
         )
@@ -514,16 +538,20 @@ class TransactionPurposeView(APIView):
             transaction.source_deduction_status = Transaction.SourceDeductionStatus.NON_DEDUCTIBLE
         elif new_purpose == Transaction.ExpensePurpose.BUSINESS:
             review = DeductionReviewService.get_or_create(transaction)
-            suggested = review.suggested_status or DeductionReview.SuggestedStatus.DEDUCTIBLE
+            if transaction.vat_amount == 0:
+                is_deductible = transaction.category == Transaction.Category.RAW_MATERIAL
+            else:
+                is_deductible = True
+
             confirmed = (
                 DeductionReview.ConfirmedStatus.DEDUCTIBLE
-                if str(suggested) in ("DEDUCTIBLE", "DEDUCTIBLE_CANDIDATE")
+                if is_deductible
                 else DeductionReview.ConfirmedStatus.NON_DEDUCTIBLE
             )
             DeductionReviewService.confirm(review=review, confirmed_status=confirmed)
             transaction.source_deduction_status = (
                 Transaction.SourceDeductionStatus.DEDUCTIBLE
-                if confirmed == DeductionReview.ConfirmedStatus.DEDUCTIBLE
+                if is_deductible
                 else Transaction.SourceDeductionStatus.NON_DEDUCTIBLE
             )
 
